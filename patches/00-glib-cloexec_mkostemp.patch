@@ -1,0 +1,19 @@
+--- glib/gmessages.c	2017-06-04 13:47:14.850395978 +0200
++++ glib/gmessages.c	2017-06-04 14:19:58.001365159 +0200
+@@ -197,6 +197,16 @@
+ #include "gstring.h"
+ #include "gpattern.h"
+ 
++#ifndef O_CLOEXEC
++#define O_CLOEXEC 0
++#else
++#define HAVE_O_CLOEXEC 1
++#endif
++
++#ifndef HAVE_MKOSTEMP
++#define mkostemp(template, flags) mkstemp(template)
++#endif
++
+ #ifdef G_OS_UNIX
+ #include <unistd.h>
+ #endif

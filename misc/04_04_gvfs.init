@@ -1,0 +1,386 @@
+#!/bin/sh
+
+# Set Environment #################################################
+. /dtv/SGO.env
+
+GVFS_ROOT={{{PREFIX}}}
+GVFS_CERT=$GVFS_ROOT/etc/ssl/certs/ca-certificates.crt
+
+if [ ! -z $MOUNT_PATH ]; then
+	MOUNT_PATH=/dtv/usb/sdb
+fi
+
+USBDIR=$(dirname $MOUNT_PATH)
+GVFS_MOUNT=$MOUNT_PATH/gvfs
+GVFS_USBDIR=$(dirname $(find $USBDIR/*/GVFS -name gvfs_root.img 2>/dev/null | head -1 2>/dev/null) 2>/dev/null)
+
+if [ -z $GVFS_USBDIR ] || [ "$GVFS_USBDIR" == "" ]; then
+	GVFS_USBDIR=$USBDIR/sda1/GVFS
+fi
+
+if [ -f $GVFS_USBDIR/DoNotStart.txt ] || [ -f $GVFS_USBDIR/DoNotStart ]; then
+	exit 0
+fi
+
+if [ -f /mtd_rwarea/gvfs_mounts.cfg ] && [ "$(cat /mtd_rwarea/gvfs_mounts.cfg 2>/dev/null)" != "" ]; then
+	CFG_FILE=/mtd_rwarea/gvfs_mounts.cfg
+elif [ -f $GVFS_USBDIR/gvfs_mounts.cfg ] && [ "$(cat $GVFS_USBDIR/gvfs_mounts.cfg 2>/dev/null)" != "" ]; then
+	CFG_FILE=$GVFS_USBDIR/gvfs_mounts.cfg
+else
+	CFG_FILE=$GVFS_ROOT/etc/gvfs_mounts.cfg
+fi
+
+if [ -f /mtd_rwarea/gvfs_fuse.cfg ] && [ "$(cat /mtd_rwarea/gvfs_fuse.cfg 2>/dev/null)" != "" ]; then
+	CFG_FILE_FUSE=/mtd_rwarea/gvfs_fuse.cfg
+elif [ -f $GVFS_USBDIR/gvfs_fuse.cfg ] && [ "$(cat $GVFS_USBDIR/gvfs_fuse.cfg 2>/dev/null)" != "" ]; then
+	CFG_FILE_FUSE=$GVFS_USBDIR/gvfs_fuse.cfg
+else
+	CFG_FILE_FUSE=$GVFS_ROOT/etc/gvfs_fuse.cfg
+fi
+
+if [ ! -d $GVFS_MOUNT ]; then
+	mkdir $GVFS_MOUNT
+fi
+	
+
+if [ ! -d $GVFS_ROOT ]; then
+	mkdir -p $GVFS_ROOT
+fi
+
+export PATH=$PATH:$GVFS_ROOT/bin:$GVFS_ROOT/sbin
+export GIO_EXTRA_MODULES=$GVFS_ROOT/lib/gio/modules
+export XDG_DATA_DIRS=$GVFS_ROOT/share:$XDG_DATA_DIRS
+
+if [ ! -z $TMPDIR ]; then
+	HOME=$TMPDIR/.GVFS
+else
+	HOME={{{TMP}}}/.GVFS
+fi
+
+if [ ! -d $HOME ]; then
+	mkdir $HOME
+fi
+
+LOGFILE=$HOME/.log_gvfs
+SEPERATOR='#############################################################################################################'
+
+if [ -f $HOME/.dbus_settings ]; then
+	. $HOME/.dbus_settings
+fi
+
+MyMounts=$HOME/.gvfs_mounts
+MyCreds=$HOME/.gvfs_creds
+
+touch $MyCreds 2>/dev/null
+chmod 600 $MyCreds 2>/dev/null
+
+###################################################################
+
+do_killDaemon() {
+	# Kill old instances ##############################################
+	
+	killall gvfsd 2>/dev/null
+	killall gvfsd-fuse 2>/dev/null
+	killall gvfs-mount 2>/dev/null
+	busybox umount -l $HOME/.gvfs 2>/dev/null
+	
+	if [ -f $HOME/.dbus_settings ]; then
+		. $HOME/.dbus_settings
+		if [ ! -z DBUS_SESSION_BUS_PID ]; then
+			kill -9 $DBUS_SESSION_BUS_PID 2>/dev/null
+			rm -f $HOME/.dbus_settings
+		fi
+	fi
+	
+	for i in $(busybox mount | grep "gvfsd.*$GVFS_MOUNT"); do
+		busybox umount $i 2>/dev/null
+	done
+	
+	###################################################################
+}
+
+do_prepare() {
+
+	echo "" > $LOGFILE
+
+	# Mount GVFS-Partition ###########################################
+	echo -e "\nMount : $GVFS_USBDIR/gvfs_root.img:" >>$LOGFILE
+	[ -f $GVFS_USBDIR/gvfs_root.img ] && [ "$(busybox mount | grep $GVFS_ROOT)" == "" ] && busybox mount -t ext4 -o loop $GVFS_USBDIR/gvfs_root.img $GVFS_ROOT 2>>$LOGFILE
+	echo -e $SEPERATOR >>$LOGFILE
+	###################################################################
+
+	if [ "$(busybox mount | grep $GVFS_ROOT)" == "" ]; then
+		echo "GVFS: ERROR - Mounting GVFS-Image ($GVFS_USBDIR/gvfs_root.img) to $GVFS_ROOT failed." >&2
+		exit 1
+	else
+		echo "GVFS: NOTICE - GVFS-Image ($GVFS_USBDIR/gvfs_root.img) on $GVFS_ROOT found." >&2
+	fi
+	
+	# Compile GLib Schemas for GVFS ###################################
+	#
+	# This is only needed once, but to be sure we just do it on every start.
+	#
+	$GVFS_ROOT/bin/glib-compile-schemas $GVFS_ROOT/share/glib-2.0/schemas >/dev/null 2>/dev/null
+	###################################################################
+	
+	# Check for ConfigFile ############################################
+	if [ ! -s $CFG_FILE ]; then 
+		# No Mounts given. No need to start at all
+		echo "GVFS: NOTICE - No Mounts given in $CFG_FILE. No need to start." >&2
+		exit 2
+	fi
+	###################################################################
+
+	do_killDaemon
+
+	# Launch dbus & gvfs Daemons ######################################
+	echo -e "\nDBus-Session:" >>$LOGFILE
+	nohup $GVFS_ROOT/bin/dbus-launch --sh-syntax >"$HOME/.dbus_settings" 2>>$LOGFILE &
+	echo -e $SEPERATOR >>$LOGFILE
+	wait; sleep 1
+	
+	if [ ! -f $HOME/.dbus_settings ]; then
+		echo "GVFS: ERROR - No DBus-Settings found. File $HOME/.dbus_settings does not exist." >&2
+		exit 1
+	else
+		. "$HOME/.dbus_settings"
+		if [ -z $DBUS_SESSION_BUS_ADDRESS ]; then
+			echo "GVFS: ERROR - No DBus-Address found." >&2
+			do_killDaemon
+			exit 1
+		else
+			echo "GVFS: NOTICE - DBus-Session start successful!" >&2
+		fi
+	fi
+	
+	echo -e "\ngvfsd:" >>$LOGFILE
+	nohup $GVFS_ROOT/sbin/gvfsd --no-fuse  >/dev/null 2>>$LOGFILE &
+	sleep 2
+	echo -e $SEPERATOR >>$LOGFILE
+	
+	if [ "$(ps -ef | grep 'gvfsd ' | grep -v grep)" == "" ]; then
+		echo "GVFS: ERROR - gvfsd didn't start!" >&2
+		do_killDaemon
+		exit 1
+	else
+		echo "GVFS: NOTICE - gvfsd start successful!" >&2
+	fi
+	
+	if [ ! -d $HOME/.gvfs ]; then
+		mkdir -p $HOME/.gvfs 2>/dev/null
+	fi
+	
+	if [ -f $CFG_FILE_FUSE ]; then
+		F_CFGs=$(cat $CFG_FILE_FUSE | tr -d "\r" | sed 's/#.*$//g' 2>/dev/null | egrep -v '^\s*$' 2>/dev/null | head -1)
+		if [ ! -z $F_CFGs ] && [ "$F_CFGs" != "" ]; then
+			F_CFGs="-o $F_CFGs"
+		fi
+	fi
+	
+	echo -e "\ngvfsd-fuse:" >>$LOGFILE
+	nohup $GVFS_ROOT/sbin/gvfsd-fuse $HOME/.gvfs $F_CFGs  >/dev/null 2>>$LOGFILE &
+	sleep 2
+	echo -e $SEPERATOR >>$LOGFILE
+	
+	if [ "$(ps -ef | grep 'gvfsd-fuse ' | grep -v grep)" == "" ]; then
+		echo "GVFS: ERROR - gvfsd-fuse didn't start!" >&2
+		do_killDaemon
+		exit 1
+	else
+		echo "GVFS: NOTICE - gvfsd-fuse start successful!" >&2
+	fi
+	###################################################################
+}
+
+do_Link() {
+
+	if [ ""$4"" != "" ] && [ ""$4"" != "/" ]; then
+		L_SubDir=$(echo $4 | sed 's#^/##g')
+		L_Source=$HOME/.gvfs/$1/$L_SubDir
+	else
+		L_Source=$HOME/.gvfs/$1
+	fi
+	
+	if [ ! -d $L_Source ]; then
+		echo "GVFS: ERROR - \""$L_Source"\" does not exist or is no directory!" >&2
+	fi
+	
+	if [ ""$1"" != "" ] && [ ""$2"" != "" ] && [ ""$3"" != "" ] && [ "$GVFS_MOUNT" != "" ] && [ -d $L_Source ]; then
+
+		L_Target=$GVFS_MOUNT/$3/$2
+		
+		if [ -d $L_Target ]; then
+			# In case there is already a mount.
+			# If there are more than one mounts pointing to this Link, then the last mount wins!
+			busybox umount -l $L_Target 2>/dev/null
+		else
+			mkdir -p $L_Target 2>/dev/null
+		fi
+		
+		# Symlinks are not shown on TV Frontend, but Binds do.
+		busybox mount -t none -o bind $L_Source $L_Target 2>/dev/null
+		
+		if [ $? -ne 0 ]; then
+			echo "GVFS: NOTICE - Linking \""$L_Source"\" to \""$L_Target"\" failed." >&2
+		else
+			echo "GVFS: NOTICE - Linking \""$L_Source"\" to \""$L_Target"\" was successful." >&2
+		fi
+	else
+		echo "GVFS: ERROR - Can't link \""$L_Source"\" to \""$L_Target"\"" >&2
+	fi
+}
+do_mount()
+{
+       min_values=3
+       echo "" > $MyMounts
+       echo "" > $GVFS_CERT
+       
+       for i in $(cat $CFG_FILE 2>/dev/null | tr -d "\r" | sed 's/#.*$//g' 2>/dev/null | egrep -v '^\s*$' 2>/dev/null) ; do
+		
+		type=$(echo $i | cut -d';' -f1 | tr '[:upper:]' '[:lower:]' 2>/dev/null)
+		mnt=$(echo $i | cut -d';' -f2)
+		link=$(echo $i | cut -d';' -f3)
+		sub=$(echo $i | cut -d';' -f4)
+		usr=$(echo $i | cut -d';' -f5)
+		pw=$(echo $i | cut -d';' -f6)
+		
+		
+		delimiters=$(echo $i | sed 's/[^;]*//g')
+		values=$((${#delimiters} +1))
+		
+		if [ $values -lt $min_values ] || [ "$type" == "" ] || [ "$mnt" == "" ] || [ "$link" == "" ]; then
+			echo "GVFS: WARNING - Skipping \"$type://$mnt\". Config-Line must contain at least \"<Type>;<Mount>;<Linkname>\" !" >&2
+			continue
+		fi
+		
+		if [ "$type" == "davs" ] || [ "$type" == "ftps" ] ||  [ "$type" == "sftp" ]; then
+			if [ "$(echo $mnt | egrep ':[0-9]+')" == "" ]; then
+				srv=$mnt":443"
+			else
+				srv=$mnt
+			fi
+			$GVFS_ROOT/bin/openssl s_client -showcerts -servername $srv -connect $srv </dev/null 2>/dev/null | $GVFS_ROOT/bin/openssl x509 -outform PEM 2>/dev/null > $GVFS_CERT
+		fi
+		
+		mnt=$(echo $type"://"$mnt)
+		
+		# Create Credentials File for mounting ##############################
+		if [ "$usr" != "" ] && [ "$pw" != "" ]; then
+			#if [ "$(echo $mnt | grep '^smb')" != "" ]; then
+			if [ "$type" == "smb" ]; then
+				echo -e "$usr\n\n$pw\n" > $MyCreds
+			else
+				echo -e "$usr\n$pw\n" > $MyCreds
+			fi
+		else
+			echo -e "\n\n" > $MyCreds
+		fi
+		#####################################################################
+		
+		# Already mounted? ##################################################
+		$GVFS_ROOT/bin/gvfs-info $mnt >/dev/null 2>/dev/null
+		
+		if [ $? -eq 0 ]; then
+			echo "GVFS: NOTICE - "$mnt" already mounted." >&2
+			echo $mnt";"$GVFS_MOUNT"/"$type"/"$link >> $MyMounts
+			do_Link $($GVFS_ROOT/bin/gvfs-info $mnt 2>/dev/null | grep 'id::filesystem' | sed 's/^.*id::filesystem: //g') $link $type $sub
+			continue
+		fi
+		#####################################################################
+		
+		# Mounting ##########################################################
+		echo -e "\n"$mnt":" >>$LOGFILE
+		$GVFS_ROOT/bin/gvfs-mount $mnt < $MyCreds >/dev/null 2>>$LOGFILE
+		# SEPERATOR hast to be after $?
+		
+		if [ $? -ne 0 ]; then
+			echo "GVFS: ERROR - Mounting "$mnt" failed!" >&2
+		else
+			echo "GVFS: NOTICE - Mounting "$mnt" was successful." >&2
+			echo $mnt";"$GVFS_MOUNT"/"$type"/"$link >> $MyMounts
+			do_Link $($GVFS_ROOT/bin/gvfs-info $mnt | grep 'id::filesystem' | sed 's/^.*id::filesystem: //g') $link $type $sub
+		fi
+		
+		echo -e $SEPERATOR >>$LOGFILE
+		#####################################################################
+       done
+       
+       echo "" > $MyCreds
+       echo "" > $GVFS_CERT
+}
+
+do_Umount() {
+	for i in $(cat $MyMounts 2>/dev/null | egrep -v '^\s*$' 2>/dev/null) ; do
+		
+		delimiters=$(echo $i | sed 's/[^;]*//g')
+		values=$((${#delimiters} +1))
+		
+		g_mount=$(echo $i | cut -d';' -f1)
+		b_mount=$(echo $i | cut -d';' -f2)
+		
+		echo "GVFS: NOTICE - Unmounting "$g_mount"." >&2
+		
+		if [ $values -ge 2 ] && [ "$b_mount" != "" ]; then
+			busybox umount $b_mount 2>/dev/null
+			
+			# I've a feeling this is to dangerous to enable.
+			# Could delete all your files inside the share.
+			# Folders should be gone after reboot anyway.
+			#
+			#if [ $? -eq 0 ]; then
+			#	if [ "$(ls -A $b_mount 2>/dev/null)" == "" ]; then
+			#		rm -r $b_mount 2>/dev/null
+			#	fi
+			#fi
+		fi
+		
+                $GVFS_ROOT/bin/gvfs-mount -fu $g_mount 2>/dev/null
+        done
+	echo "" > $MyMounts 2>/dev/null
+}
+
+case $1 in
+        start)
+		echo "GVFS: NOTICE - Starting GVFS." >&2
+		insmod $MOD_DIR/kernel/fs/fuse/fuse.ko 2>/dev/null
+		do_prepare
+		do_mount
+        ;;
+        stop)
+		echo "GVFS: NOTICE - Stopping GVFS." >&2
+		do_Umount
+		do_killDaemon
+		busybox umount $GVFS_ROOT 2>/dev/null
+		#busybox umount $GVFS_MOUNT 2>/dev/null
+        ;;
+	stop-daemons)
+		echo "GVFS: NOTICE - Stopping GVFS." >&2
+		do_Umount
+		do_killDaemon
+        ;;
+	mount)
+		do_mount
+        ;;
+	umount)
+		do_Umount
+        ;;
+        status)
+		echo
+		echo "###### Services: ######"
+		echo "$(ps -ef 2>/dev/null| grep "$DBUS_SESSION_BUS_PID.*dbus-daemon" 2>/dev/null | grep -v grep 2>/dev/null)"
+		echo "$(ps -ef | grep gvfsd 2>/dev/null | grep -v grep 2>/dev/null)"
+		echo
+		echo "###### Mounts: ######"
+		echo "$(find $HOME/.gvfs/ -maxdepth 1 -type d 2>/dev/null | grep -v "^$HOME/.gvfs/$" 2>/dev/null)"
+		echo
+		echo "###### Error-Log: ######"
+		cat $LOGFILE
+		echo
+        ;;
+        *)
+		echo "Usage: $0 {start|stop|stop-daemons|mount|umount}" 1>&2
+		exit 0
+        ;;
+esac
+
+exit 0
