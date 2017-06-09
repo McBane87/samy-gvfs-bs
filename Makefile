@@ -95,7 +95,22 @@ proper-clean:
 prepare:
 	if [[ ! -d $(OPT_DONE) ]]; then \
 		mkdir $(OPT_DONE); \
-	fi;
+	fi; \
+	if [[ ! -d $(OPT_BUILD) ]]; then \
+		mkdir $(OPT_BUILD); \
+	fi; \
+	if [[ ! -d $(OPT_DOWNLOADS) ]]; then \
+		mkdir $(OPT_DOWNLOADS); \
+	fi; \
+	if [[ ! -d $(OPT_WORKDIR)/packages ]]; then \
+		mkdir $(OPT_WORKDIR)/packages; \
+	fi; \
+	if [[ ! -d $(OPT_SCRIPTS) ]]; then \
+		mkdir $(OPT_SCRIPTS); \
+	fi; \
+	if [[ ! -d $(OPT_WORKDIR)/toolchains ]]; then \
+		mkdir $(OPT_WORKDIR)/toolchains; \
+	fi; \
 		
 toolchain: prepare $(OPT_TOOLCHAIN)
 
