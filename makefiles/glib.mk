@@ -94,6 +94,9 @@ glib_make_install: glib_make
 			if [[ $$(find $(OPT_SYSROOT_BUILD)/lib/pkgconfig -name "*.pc") != "" ]]; then \
 				find $(OPT_SYSROOT_BUILD)/lib/pkgconfig -name "*.pc" | xargs -n1 sed -i "s#^prefix=.*#prefix=$(OPT_SYSROOT_BUILD)#g" \
 			;fi && \
+			if [[ $$(find $(OPT_SYSROOT_BUILD)/lib/pkgconfig -name "*.pc") != "" ]]; then \
+				find $(OPT_SYSROOT_BUILD)/lib/pkgconfig -name "*.pc" | xargs -n1 sed -i "s#^giomoduledir=.*#giomoduledir=$(OPT_PREFIX)/lib/gio/modules#g" \
+			;fi && \
 		touch $(OPT_DONE)/$@ \
 	;fi
 

@@ -3,6 +3,8 @@
 # Set Environment #################################################
 . /dtv/SGO.env
 
+export GVFS_STRICT_SSL=0 
+
 GVFS_ROOT={{{PREFIX}}}
 GVFS_CERT=$GVFS_ROOT/etc/ssl/certs/ca-certificates.crt
 
@@ -61,6 +63,18 @@ if [ ! -d $HOME ]; then
 	mkdir $HOME
 fi
 
+if [ ! -d {{{TMP}}}/.gvfs.samba ]; then
+	mkdir -p {{{TMP}}}/.gvfs.samba 2>/dev/null
+fi
+
+if [ ! -d {{{TMP}}}/.gvfs.dbus ]; then
+	mkdir -p {{{TMP}}}/.gvfs.dbus 2>/dev/null
+fi
+
+if [ ! -d {{{TMP}}}/console ]; then
+	mkdir -p {{{TMP}}}/console 2>/dev/null
+fi
+
 LOGFILE=$HOME/.log_gvfs
 SEPERATOR='#############################################################################################################'
 
@@ -80,19 +94,23 @@ do_killDaemon() {
 	# Kill old instances ##############################################
 	
 	killall gvfsd 2>/dev/null
+	killall -9 gvfsd 2>/dev/null
 	killall gvfsd-fuse 2>/dev/null
+	killall -9 gvfsd-fuse 2>/dev/null
 	killall gvfs-mount 2>/dev/null
+	killall -9 gvfs-mount 2>/dev/null
 	busybox umount -l $HOME/.gvfs 2>/dev/null
 	
 	if [ -f $HOME/.dbus_settings ]; then
 		. $HOME/.dbus_settings
-		if [ ! -z DBUS_SESSION_BUS_PID ]; then
+		if [ ! -z $DBUS_SESSION_BUS_PID ]; then
+			kill $DBUS_SESSION_BUS_PID 2>/dev/null
 			kill -9 $DBUS_SESSION_BUS_PID 2>/dev/null
 			rm -f $HOME/.dbus_settings
 		fi
 	fi
 	
-	for i in $(busybox mount | grep "gvfsd.*$GVFS_MOUNT"); do
+	for i in $(busybox mount | grep "gvfsd.*$GVFS_MOUNT" | cut -d" " -f3 2>/dev/null); do
 		busybox umount $i 2>/dev/null
 	done
 	
@@ -253,13 +271,15 @@ do_mount()
 			continue
 		fi
 		
-		if [ "$type" == "davs" ] || [ "$type" == "ftps" ] ||  [ "$type" == "sftp" ]; then
-			if [ "$(echo $mnt | egrep ':[0-9]+')" == "" ]; then
-				srv=$mnt":443"
-			else
-				srv=$mnt
+		if [ "$GVFS_STRICT_SSL" == "1" ] || [ "$(echo $GVFS_STRICT_SSL | tr '[:upper:]' '[:lower:]')" == "true" ]; then
+			if [ "$type" == "davs" ] || [ "$type" == "ftps" ] ||  [ "$type" == "sftp" ]; then
+				if [ "$(echo $mnt | egrep ':[0-9]+')" == "" ]; then
+					srv=$mnt":443"
+				else
+					srv=$mnt
+				fi
+				$GVFS_ROOT/bin/openssl s_client -showcerts -servername $srv -connect $srv </dev/null 2>/dev/null | $GVFS_ROOT/bin/openssl x509 -outform PEM 2>/dev/null > $GVFS_CERT
 			fi
-			$GVFS_ROOT/bin/openssl s_client -showcerts -servername $srv -connect $srv </dev/null 2>/dev/null | $GVFS_ROOT/bin/openssl x509 -outform PEM 2>/dev/null > $GVFS_CERT
 		fi
 		
 		mnt=$(echo $type"://"$mnt)
@@ -351,7 +371,7 @@ case $1 in
 		do_Umount
 		do_killDaemon
 		busybox umount $GVFS_ROOT 2>/dev/null
-		#busybox umount $GVFS_MOUNT 2>/dev/null
+		busybox umount -l $GVFS_ROOT 2>/dev/null
         ;;
 	stop-daemons)
 		echo "GVFS: NOTICE - Stopping GVFS." >&2

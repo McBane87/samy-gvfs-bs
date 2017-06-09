@@ -31,7 +31,8 @@ gvfs_extract: gvfs_download
 			-$(PACK_AR) \
 			-f $(OPT_DOWNLOADS)/$(PACK_AR_FILE) \
 			-C $(OPT_BUILD)/ && \
-#		find $(OPT_BUILD)/$(PACK_DIR)/ -name Makefile.in -exec sed -i -- 's#-rpath $$(\([a-z]\|[0-9]\)\+)#-rpath /_NONE_#gi' {} \; || echo "Nothing" && \
+		cd $(OPT_BUILD)/$(PACK_DIR) && \
+		patch -p0 < $(OPT_PATCHES)/00-gvfs-strict_ssl_env.patch && \
 		touch $(OPT_DONE)/$@ \
 	;fi
 
@@ -83,6 +84,7 @@ gvfs_configure: gvfs_extract
 				--enable-samba \
 				--enable-nfs \
 				--enable-fuse \
+				--with-samba-libs=$(OPT_SYSROOT_BUILD) \
 				CFLAGS="$(OPT_GVFS_CFLAGS)" \
 				CXXFLAGS="$(OPT_GVFS_CXXFLAGS)" \
 				LDFLAGS="$(OPT_GVFS_LDFLAGS)" && \

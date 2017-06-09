@@ -33,3 +33,10 @@ Well, I was only able to test it on my Samsung UE40FXXX TV. But I guess chances 
    `mv /mnt/etc/init.d/04_04_gvfs.init.dis /mnt/etc/init.d/04_04_gvfs.init`
    
 Error Logs can be found directly on the console (if Init-Script was started manually) or inside `/mnt/sam.log` (if started on boot) and additionally you can find Errors inside `$TMPDIR/.gvfs/.log_gvfs`
+
+## Which Version do I need? (ARM or MIPS)
+Use the following command on your TV and look if your CPU is ARM or MIPS:
+`cat /proc/cpuinfo`
+
+## Pre-Compiled Downloads
+Pre-Compiled downloads can be found [here](https://github.com/McBane87/samy-gvfs-bs/releases), once I upload some....

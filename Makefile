@@ -10,7 +10,7 @@ export PKG_CONFIG_PATH := $(OPT_SYSROOT_BUILD)/lib/pkgconfig
 
 OPT_CFLAGS := $(CFLAGS) -D_GNU_SOURCE -I$(OPT_SYSROOT_BUILD)/include -L$(OPT_SYSROOT_BUILD)/lib
 OPT_CXXFLAGS := $(CXXFLAGS) -D_GNU_SOURCE -I$(OPT_SYSROOT_BUILD)/include -L$(OPT_SYSROOT_BUILD)/lib
-OPT_LDFLAGS := $(LDFLAGS) -L$(OPT_SYSROOT_BUILD)/lib -Wl,-rpath-link,$(OPT_SYSROOT_BUILD)/lib
+OPT_LDFLAGS := $(LDFLAGS) -L$(OPT_SYSROOT_BUILD)/lib -Wl,-rpath-link,$(OPT_SYSROOT_BUILD)/lib:$(OPT_SYSROOT_TCHAIN)/lib:$(OPT_SYSROOT_TCHAIN)/usr/lib
 
 ifneq (,$(findstring Yes,$(OPT_RPATH)))
 OPT_CFLAGS += -Wl,-R,$(OPT_PREFIX)/lib
@@ -73,19 +73,22 @@ default: all ;
 
 all: prepare toolchain zlib libxml2 expat openssl libffi fuse libnfs sqlite3 gmp nettle gnutls samba3 glib libproxy glib-networking libsoup dbus gvfs image
 
-clean: zlib_clean libffi_clean fuse_clean
+clean:	distclean
+
+distclean:
+	rm -f $(OPT_DONE)/*_extract
+	rm -f $(OPT_DONE)/*_configure
 	rm -f $(OPT_DONE)/*_make
 	rm -f $(OPT_DONE)/*_make_install
 	rm -f $(OPT_DONE)/*_all
-
-distclean: clean zlib_distclean libffi_distclean fuse_distclean
-	rm -f $(OPT_DONE)/*_configure
+	rm -f $(OPT_DONE)/install
+	rm -rf $(OPT_BUILD)/*
 	
 proper-clean:
 	rm -f $(OPT_DONE)/*
 	rm -rf $(OPT_BUILD)/*
 	rm -rf $(OPT_INSTALL)/*
-	rm -rf $(OPT_PACKAGE_ROOT)/*
+	rm -rf $(OPT_PACKAGE_ROOT)
 	rm -f config.mk
 	
 	
@@ -158,7 +161,7 @@ install: gvfs
 		for f in $$(find $(OPT_SYSROOT_BUILD)/sbin/ -mindepth 1 -type f -name "gvfsd*"); do \
 			$(call loop_inst_file) \
 		;done && \
-		for f in $$(find $(OPT_SYSROOT_BUILD)/lib/ -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -name "*.so*" -o -name "*.dat" ); do \
+		for f in $$(find $(OPT_SYSROOT_BUILD)/lib/ -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -name "*.so.*" -o -name "*.dat" ); do \
 			$(call loop_inst_file) \
 		;done && \
 		for f in $$(find $(OPT_SYSROOT_BUILD)/lib/engines/ -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -name "*.so*"); do \

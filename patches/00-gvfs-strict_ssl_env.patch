@@ -1,0 +1,24 @@
+--- daemon/gvfsbackenddav.c	2017-06-09 21:47:20.585964932 +0200
++++ daemon/gvfsbackenddav.c	2017-06-09 23:21:33.902705129 +0200
+@@ -1865,8 +1865,20 @@
+   session = G_VFS_BACKEND_HTTP (backend)->session;
+   G_VFS_BACKEND_HTTP (backend)->mount_base = mount_base; 
+ 
++  /****** Disable or Enable Strict SSL via Environment Variable, 
++  ******* because the mentioned "chance to override" some lines down isn't working with gvfs-mount. */
++
+   /* Override the HTTP backend's default. */
+-  g_object_set (session, "ssl-strict", TRUE, NULL);
++  if ( getenv("GVFS_STRICT_SSL") != NULL ) {
++	  if (strcasecmp(getenv("GVFS_STRICT_SSL"), "1") == 0 || strcasecmp(getenv("GVFS_STRICT_SSL"), "true") == 0) {
++		g_object_set (session, "ssl-strict", TRUE, NULL);
++	  } else {
++		g_object_set (session, "ssl-strict", FALSE, NULL);
++	  }
++  } else {
++	g_object_set (session, "ssl-strict", FALSE, NULL);
++  }
++  /**************************************************************************************************/
+ 
+   data = &(G_VFS_BACKEND_DAV (backend)->auth_info); 
+   data->mount_source = g_object_ref (mount_source);
